@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ITP Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="loading-overlay">Loading…</div>
+<div id="toast-container"></div>
+
+<div id="app">
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header id="header">
+    <div class="logo">ITP <span>Dashboard</span></div>
+    <div class="header-right">
+      <span id="wallet-addr" class="text-muted"></span>
+      <span id="wallet-dot" class="dot"></span>
+      <button id="wallet-btn">Connect Wallet</button>
+    </div>
+  </header>
+
+  <!-- ── Sidebar ────────────────────────────────────────────────────────── -->
+  <nav id="sidebar">
+    <div class="nav-section">Overview</div>
+    <div class="nav-item active" data-section="overview"><span class="nav-icon">⬡</span> Dashboard</div>
+
+    <div class="nav-section">Monitor</div>
+    <div class="nav-item" data-section="gas"><span class="nav-icon">⛽</span> Gas & Wallet</div>
+
+    <div class="nav-section">Protocol</div>
+    <div class="nav-item" data-section="vault"><span class="nav-icon">🏦</span> Vault</div>
+    <div class="nav-item" data-section="admin"><span class="nav-icon">⚙️</span> Admin</div>
+
+    <div class="nav-section">Trading</div>
+    <div class="nav-item" data-section="trading"><span class="nav-icon">📈</span> Coinbase</div>
+  </nav>
+
+  <!-- ── Main ───────────────────────────────────────────────────────────── -->
+  <main id="main">
+
+    <!-- ── Overview ──────────────────────────────────────────────────────── -->
+    <section id="sec-overview" class="section">
+      <div class="section-title">Overview</div>
+      <div class="grid-4">
+        <div class="card">
+          <div class="card-title">DAO Wallet</div>
+          <div class="card-value" id="ov-balance"><span class="spinner"></span></div>
+          <div class="card-sub">ETH on Ethereum</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Gas (ETH)</div>
+          <div class="card-value" id="ov-gas"><span class="spinner"></span></div>
+          <div class="card-sub">Current gwei</div>
+        </div>
+        <div class="card">
+          <div class="card-title">UniV3 Compounder</div>
+          <div class="card-value">Base</div>
+          <div class="card-sub">WETH/USDC 0.05%</div>
+        </div>
+        <div class="card">
+          <div class="card-title">AutoCompound Vault</div>
+          <div class="card-value">Optimism</div>
+          <div class="card-sub">ITP-USDC / Velodrome</div>
+        </div>
+      </div>
+
+      <div class="card mb-16">
+        <div class="card-title">DAO Address</div>
+        <div class="mt-16" style="font-family:monospace;font-size:13px;word-break:break-all">
+          0xfbC61F8A651622B82829046afb3f10AF666c19e1
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Quick Links</div>
+        <div class="mt-16" style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-ghost" onclick="showSection('gas')">⛽ Gas Monitor</button>
+          <button class="btn btn-ghost" onclick="showSection('vault')">🏦 Vault</button>
+          <button class="btn btn-ghost" onclick="showSection('trading')">📈 Trading</button>
+          <button class="btn btn-ghost" onclick="showSection('admin')">⚙️ Admin</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Gas & Wallet ───────────────────────────────────────────────────── -->
+    <section id="sec-gas" class="section">
+      <div class="section-title">Gas & Wallet Monitor</div>
+      <div class="section-sub">
+        Live gas prices and DAO wallet ETH balance across all three networks. Auto-refreshes every 30 s.
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px" id="gas-cards">
+        <div class="gas-card"><span class="spinner"></span></div>
+        <div class="gas-card"><span class="spinner"></span></div>
+        <div class="gas-card"><span class="spinner"></span></div>
+      </div>
+      <div class="mt-16">
+        <button class="btn btn-ghost" onclick="loadGas()">↻ Refresh</button>
+      </div>
+    </section>
+
+    <!-- ── Vault ──────────────────────────────────────────────────────────── -->
+    <section id="sec-vault" class="section">
+      <div class="section-title">AutoCompound Vault</div>
+      <div class="section-sub">
+        Deposit USDC to earn compounded ITP-USDC LP rewards via Velodrome on Optimism.
+      </div>
+
+      <div id="vault-status" class="mb-16"><span class="spinner"></span></div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Deposit USDC</div>
+          <div class="form-row mt-16">
+            <div class="field">
+              <label>Amount (USDC)</label>
+              <input type="number" id="vault-deposit-amt" placeholder="100" min="0" step="0.01" />
+            </div>
+            <button class="btn btn-primary" onclick="vaultDeposit()">Deposit</button>
+          </div>
+          <p class="text-muted" style="font-size:11px">USDC is swapped 50/50, added as ITP-USDC LP, staked in gauge.</p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Withdraw Shares</div>
+          <div class="form-row mt-16">
+            <div class="field">
+              <label>Shares</label>
+              <input type="number" id="vault-withdraw-shares" placeholder="0.0" min="0" step="0.000001" />
+            </div>
+            <button class="btn btn-warn" onclick="vaultWithdraw()">Withdraw</button>
+          </div>
+          <p class="text-muted" style="font-size:11px">Withdraws your proportional share of the LP position.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Trading ────────────────────────────────────────────────────────── -->
+    <section id="sec-trading" class="section">
+      <div class="section-title">Coinbase Trading</div>
+
+      <!-- Chart controls -->
+      <div class="card mb-16">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <select id="chart-pair" class="field" style="width:130px;padding:7px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:7px">
+              <option>BTC-USD</option>
+              <option>ETH-USD</option>
+              <option>SOL-USD</option>
+              <option>LINK-USD</option>
+              <option>POL-USD</option>
+            </select>
+            <select id="chart-tf" style="width:80px;padding:7px 10px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:7px">
+              <option value="1m">1m</option>
+              <option value="5m">5m</option>
+              <option value="15m">15m</option>
+              <option value="1h" selected>1h</option>
+              <option value="6h">6h</option>
+              <option value="1d">1d</option>
+            </select>
+          </div>
+          <div id="chart-status" style="font-size:15px;font-weight:600"></div>
+        </div>
+        <div class="chart-wrap mt-16">
+          <canvas id="price-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <!-- Order form -->
+        <div class="card">
+          <div class="card-title">Place Order</div>
+          <p class="text-muted mt-16" style="font-size:11px;margin-bottom:12px">Requires COINBASE_API_KEY in .env</p>
+
+          <div class="form-row">
+            <div class="field">
+              <label>Pair</label>
+              <select id="order-pair">
+                <option>BTC-USD</option><option>ETH-USD</option>
+                <option>SOL-USD</option><option>LINK-USD</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Side</label>
+              <select id="order-side">
+                <option value="BUY">BUY</option>
+                <option value="SELL">SELL</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label>Type</label>
+              <select id="order-type" onchange="document.getElementById('order-price-row').style.display=this.value==='market'?'none':'flex'">
+                <option value="market">Market</option>
+                <option value="limit">Limit GTC</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Size (base)</label>
+              <input type="number" id="order-size" placeholder="0.001" min="0" step="0.0001" />
+            </div>
+          </div>
+          <div class="form-row" id="order-price-row" style="display:none">
+            <div class="field">
+              <label>Limit Price (USD)</label>
+              <input type="number" id="order-price" placeholder="60000" />
+            </div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="placeOrder()">Place Order</button>
+        </div>
+
+        <!-- Accounts -->
+        <div class="card">
+          <div class="card-title">Account Balances</div>
+          <div id="accounts-list" class="mt-16"><span class="spinner"></span></div>
+        </div>
+      </div>
+
+      <!-- Open orders -->
+      <div class="card mt-16">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="card-title" style="margin:0">Open Orders</div>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="loadOpenOrders()">↻ Refresh</button>
+        </div>
+        <div id="orders-list" class="mt-16"><span class="spinner"></span></div>
+      </div>
+    </section>
+
+    <!-- ── Admin ──────────────────────────────────────────────────────────── -->
+    <section id="sec-admin" class="section">
+      <div class="section-title">Contract Admin</div>
+      <p class="section-sub">Owner-only functions. Wallet must be connected as <code>0xfbC61F8A…</code></p>
+
+      <!-- InfiniteBoost -->
+      <div class="card mb-16">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <div style="font-weight:700;font-size:15px">InfiniteBoost <span class="badge blue" style="font-size:10px">Optimism</span></div>
+          <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="loadAdmin()">↻ Refresh</button>
+        </div>
+        <div id="boost-status"><span class="spinner"></span></div>
+
+        <div class="divider"></div>
+
+        <!-- Pause / Unpause -->
+        <div style="margin-bottom:16px">
+          <div class="card-title">Emergency Controls</div>
+          <div class="form-row mt-16">
+            <button class="btn btn-warn" onclick="boostPause()">⏸ Pause</button>
+            <button class="btn btn-primary" onclick="boostUnpause()">▶ Unpause</button>
+          </div>
+        </div>
+
+        <!-- Fee -->
+        <div style="margin-bottom:16px">
+          <div class="card-title">Set Fee %</div>
+          <div class="form-row mt-16">
+            <div class="field">
+              <label>Fee (whole number, e.g. 10 = 10%)</label>
+              <input type="number" id="boost-fee-val" placeholder="10" min="0" max="25" />
+            </div>
+            <button class="btn btn-primary" onclick="boostSetFee()">Set Fee</button>
+          </div>
+        </div>
+
+        <!-- Add gauge -->
+        <div style="margin-bottom:16px">
+          <div class="card-title">Add Gauge</div>
+          <div class="form-row mt-16">
+            <div class="field"><label>LP Token Address</label><input type="text" id="gauge-lp" placeholder="0x…" /></div>
+            <div class="field"><label>Gauge Address</label><input type="text" id="gauge-addr" placeholder="0x…" /></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Boost % (e.g. 200)</label><input type="number" id="gauge-boost" placeholder="200" /></div>
+            <div class="field"><label>Min Reward Amount</label><input type="number" id="gauge-min" placeholder="1000" /></div>
+            <button class="btn btn-primary" onclick="boostAddGauge()">Add Gauge</button>
+          </div>
+        </div>
+
+        <!-- Remove gauge -->
+        <div>
+          <div class="card-title">Remove Gauge</div>
+          <div class="form-row mt-16">
+            <div class="field"><label>LP Token Address</label><input type="text" id="remove-gauge-lp" placeholder="0x…" /></div>
+            <button class="btn btn-danger" onclick="boostRemoveGauge()">Remove Gauge</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- UniV3AutoCompounder -->
+      <div class="card">
+        <div style="font-weight:700;font-size:15px;margin-bottom:16px">
+          UniV3AutoCompounder <span class="badge blue" style="font-size:10px">Base</span>
+        </div>
+        <div id="v3-status"><span class="spinner"></span></div>
+        <div class="divider"></div>
+        <div class="form-row">
+          <button class="btn btn-primary" onclick="v3Compound()">⚡ Compound Now</button>
+        </div>
+      </div>
+    </section>
+
+  </main><!-- /#main -->
+</div><!-- /#app -->
+
+<!-- CDN scripts — loaded last so DOM is ready -->
+<script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js" type="application/javascript"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
