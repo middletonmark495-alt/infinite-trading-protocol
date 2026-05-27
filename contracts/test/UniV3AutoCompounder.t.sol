@@ -93,7 +93,7 @@ contract UniV3AutoCompounderTest is Test {
     // ── Test actors ───────────────────────────────────────────────────────────
     address constant USER   = address(0xBEEF);
     address constant KEEPER = address(0xCAFE);
-    address constant DAO    = address(0xDAD0); // mock ITP DAO
+    address constant DAO    = 0xfbC61F8A651622B82829046afb3f10AF666c19e1; // ITP DAO wallet
 
     // ── Deployed contract ─────────────────────────────────────────────────────
     UniV3AutoCompounder public vault;

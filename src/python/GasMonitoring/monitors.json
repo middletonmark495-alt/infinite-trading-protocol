@@ -1,0 +1,25 @@
+{
+  "monitors": [
+    {
+      "name": "ITP DAO — Ethereum",
+      "address": "0xfbC61F8A651622B82829046afb3f10AF666c19e1",
+      "network": "ethereum"
+    },
+    {
+      "name": "ITP DAO — Base",
+      "address": "0xfbC61F8A651622B82829046afb3f10AF666c19e1",
+      "network": "base"
+    },
+    {
+      "name": "ITP DAO — Optimism",
+      "address": "0xfbC61F8A651622B82829046afb3f10AF666c19e1",
+      "network": "optimism"
+    }
+  ],
+  "thresholds": {
+    "ethereum": 50,
+    "base": 10,
+    "optimism": 10
+  },
+  "notify": ["stdout", "discord"]
+}
