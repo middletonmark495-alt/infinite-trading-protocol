@@ -531,17 +531,276 @@ import "../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
     }
 
     // function testpruebasalidaconversor() public view returns(uint256){
-    // uint256 inputAmount = 1 ether;
-    // address lpTokenAddress = address(lpToken);
-    
-    // console.log("Input Amount:", inputAmount);
-    // console.log("LP Token Address:", lpTokenAddress);
-    
-    // uint256 resultado = booster._rewardBoost(inputAmount, lpTokenAddress);
-    
-    // console.log("Resultado conversion:", resultado);
-    // return resultado;
+    // ...
     // }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Pause / Unpause
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_Pause_StopsDeposit() public {
+        vm.prank(address(0x9));
+        booster.pause();
+
+        vm.startPrank(user1);
+        lpToken.approve(address(booster), DEPOSIT_AMOUNT);
+        vm.expectRevert(abi.encodeWithSelector(Pausable.EnforcedPause.selector));
+        booster.deposit(DEPOSIT_AMOUNT, address(lpToken));
+        vm.stopPrank();
+    }
+
+    function test_Pause_StopsWithdraw() public {
+        vm.startPrank(user1);
+        lpToken.approve(address(booster), DEPOSIT_AMOUNT);
+        booster.deposit(DEPOSIT_AMOUNT, address(lpToken));
+        vm.stopPrank();
+
+        vm.prank(address(0x9));
+        booster.pause();
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Pausable.EnforcedPause.selector));
+        booster.withdraw(DEPOSIT_AMOUNT, address(lpToken));
+        vm.stopPrank();
+    }
+
+    function test_Pause_OnlyOwner() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.pause();
+        vm.stopPrank();
+    }
+
+    function test_UnPause_RestoresFunctionality() public {
+        vm.prank(address(0x9));
+        booster.pause();
+
+        vm.prank(address(0x9));
+        booster.unPause();
+
+        vm.startPrank(user1);
+        lpToken.approve(address(booster), DEPOSIT_AMOUNT);
+        booster.deposit(DEPOSIT_AMOUNT, address(lpToken));
+        vm.stopPrank();
+
+        assertEq(booster.getBalanceOfLp(user1, address(lpToken)), DEPOSIT_AMOUNT, "Deposit should succeed after unpause");
+    }
+
+    function test_UnPause_OnlyOwner() public {
+        vm.prank(address(0x9));
+        booster.pause();
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.unPause();
+        vm.stopPrank();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Emergency Withdraw
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_EmergencyWithdraw() public {
+        vm.startPrank(user1);
+        lpToken.approve(address(booster), DEPOSIT_AMOUNT);
+        booster.deposit(DEPOSIT_AMOUNT, address(lpToken));
+        vm.stopPrank();
+
+        uint256 balanceBefore = lpToken.balanceOf(user1);
+        assertEq(booster.getBalanceOfLp(user1, address(lpToken)), DEPOSIT_AMOUNT);
+
+        vm.prank(address(0x9));
+        booster.pause();
+
+        vm.prank(user1);
+        booster.emergencyWithdraw(address(lpToken));
+
+        assertEq(booster.getBalanceOfLp(user1, address(lpToken)), 0, "Balance should be zero after emergency withdraw");
+        assertEq(lpToken.balanceOf(user1) - balanceBefore, DEPOSIT_AMOUNT, "Full amount returned with no fee");
+    }
+
+    function test_EmergencyWithdraw_OnlyWhenPaused() public {
+        vm.startPrank(user1);
+        lpToken.approve(address(booster), DEPOSIT_AMOUNT);
+        booster.deposit(DEPOSIT_AMOUNT, address(lpToken));
+        vm.stopPrank();
+
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Pausable.ExpectedPause.selector));
+        booster.emergencyWithdraw(address(lpToken));
+        vm.stopPrank();
+    }
+
+    function test_EmergencyWithdraw_ZeroBalance_Reverts() public {
+        vm.prank(address(0x9));
+        booster.pause();
+
+        vm.prank(user1);
+        vm.expectRevert("No balance to withdraw");
+        booster.emergencyWithdraw(address(lpToken));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  withdrawBoostRewardToken
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_WithdrawBoostRewardToken() public {
+        uint256 withdrawAmount = 1 ether;
+        uint256 ownerBalanceBefore = itpToken.balanceOf(address(0x9));
+
+        vm.prank(address(0x9));
+        booster.withdrawBoostRewardToken(withdrawAmount);
+
+        assertEq(itpToken.balanceOf(address(0x9)) - ownerBalanceBefore, withdrawAmount, "Owner should receive withdrawn tokens");
+    }
+
+    function test_WithdrawBoostRewardToken_OnlyOwner() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.withdrawBoostRewardToken(1 ether);
+        vm.stopPrank();
+    }
+
+    function test_WithdrawBoostRewardToken_ZeroAmount_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Cannot withdraw 0 tokens");
+        booster.withdrawBoostRewardToken(0);
+    }
+
+    function test_WithdrawBoostRewardToken_ExceedsBalance_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Insufficient RewardToken balance in contract");
+        booster.withdrawBoostRewardToken(100_000 ether);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  setRouter / setOracle
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_SetRouter_UpdatesRouter() public {
+        address newRouter = address(0xABCD);
+        vm.prank(address(0x9));
+        booster.setRouter(newRouter);
+        assertEq(address(booster.router()), newRouter);
+    }
+
+    function test_SetRouter_OnlyOwner() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.setRouter(address(0xABCD));
+        vm.stopPrank();
+    }
+
+    function test_SetRouter_ZeroAddress_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Invalid router address");
+        booster.setRouter(address(0));
+    }
+
+    function test_SetOracle_UpdatesOracle() public {
+        address newOracle = address(0xABCD);
+        vm.prank(address(0x9));
+        booster.setOracle(newOracle);
+        assertEq(address(booster.oracle()), newOracle);
+    }
+
+    function test_SetOracle_OnlyOwner() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.setOracle(address(0xABCD));
+        vm.stopPrank();
+    }
+
+    function test_SetOracle_ZeroAddress_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Invalid oracle address");
+        booster.setOracle(address(0));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  setBoostPercentage
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_SetBoostPercentage_UpdatesValue() public {
+        uint256 newBoost = 100;
+        vm.prank(address(0x9));
+        booster.setBoostPercentage(newBoost, address(lpToken));
+        assertEq(booster.getBoostPercentage(address(lpToken)), newBoost);
+    }
+
+    function test_SetBoostPercentage_BelowMin_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("The boostReward must be at least 5%");
+        booster.setBoostPercentage(49, address(lpToken));
+    }
+
+    function test_SetBoostPercentage_OnlyOwner() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.setBoostPercentage(100, address(lpToken));
+        vm.stopPrank();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  setFeePercentage boundary
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_SetFeePercentage_AboveMax_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Fee percentage cannot exceed 1%");
+        booster.setFeePercentage(11);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  addGauge remove
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_AddGauge_Remove() public {
+        assertTrue(booster.isPoolActive(address(lpToken)));
+        uint256 lengthBefore = booster.getAllLPTokens().length;
+
+        vm.prank(address(0x9));
+        booster.addGauge(address(lpToken), IGauge(address(0)), 0, 0);
+
+        assertFalse(booster.isPoolActive(address(lpToken)), "Gauge should be removed");
+        assertEq(booster.getAllLPTokens().length, lengthBefore - 1, "LP tokens array should shrink");
+    }
+
+    function test_AddGauge_Remove_Nonexistent_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Gauge does not exist for this LP");
+        booster.addGauge(address(0x1234), IGauge(address(0)), 0, 0);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  depositBoostReward
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_DepositBoostReward() public {
+        uint256 depositAmount = 100 ether;
+        deal(address(itpToken), address(0x9), depositAmount);
+        uint256 contractBalanceBefore = itpToken.balanceOf(address(booster));
+
+        vm.startPrank(address(0x9));
+        itpToken.approve(address(booster), depositAmount);
+        booster.depositBoostReward(depositAmount);
+        vm.stopPrank();
+
+        assertEq(itpToken.balanceOf(address(booster)), contractBalanceBefore + depositAmount);
+    }
+
+    function test_DepositBoostReward_OnlyOwner() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user1));
+        booster.depositBoostReward(1 ether);
+        vm.stopPrank();
+    }
+
+    function test_DepositBoostReward_ZeroAmount_Reverts() public {
+        vm.prank(address(0x9));
+        vm.expectRevert("Cannot deposit 0 tokens");
+        booster.depositBoostReward(0);
+    }
 
     }
 

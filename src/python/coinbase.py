@@ -2,137 +2,238 @@
 Author: etherpilled
 Infinite Trading Protocol
 
-Licensed under the MIT License. You may use, distribute, and modify this code under the terms of the MIT license.
+Licensed under the MIT License.
 
-Description:
-This script fetches historical OHLCV (Open, High, Low, Close, Volume) candle data from the Coinbase API for a list of trading pairs.
-It includes:
-- Granularity conversion (timeframe to seconds).
-- Retry mechanism for handling rate limits, IP bans, or transient errors.
-- Support for multiple trading pairs and timeframes.
+Coinbase API client supporting:
+- Coinbase Exchange API (public, no auth) for OHLCV candle data
+- Coinbase Advanced Trade API (API key + secret) for authenticated endpoints
 
-How to Use:
-1. Define the trading pairs, timeframes, and number of candles in the `main()` function.
-2. Call the `get_candles_with_retry` function to fetch data for each trading pair.
-3. Use the returned data for analysis, modeling, or storage.
-4. Adjust the retry parameters in `get_candles_with_retry` if needed.
+Environment variables (required only for authenticated endpoints):
+    COINBASE_API_KEY    – your Coinbase API key
+    COINBASE_API_SECRET – your Coinbase API secret
 
-Dependencies:
-- requests: Install it via `pip install requests`
-
+Dependencies: pip install requests
 """
 
-import datetime
+import hashlib
+import hmac
+import os
 import time
-import requests
-from datetime import datetime
+from typing import Optional
 
-# Mapping timeframes to their equivalent durations in seconds
-timeframe_to_seconds = {
-    '1m': 60,
-    '5m': 300,
-    '15m': 900,
-    '1h': 3600,
-    '6h': 21600,
-    '1d': 86400,
-    '1w': 604800
+import requests
+
+# ── Constants ─────────────────────────────────────────────────────────────────
+
+EXCHANGE_BASE_URL      = "https://api.exchange.coinbase.com"
+ADVANCED_TRADE_BASE_URL = "https://api.coinbase.com"
+
+TIMEFRAME_TO_GRANULARITY: dict[str, int] = {
+    "1m":  60,
+    "5m":  300,
+    "15m": 900,
+    "1h":  3600,
+    "6h":  21600,
+    "1d":  86400,
+    "1w":  604800,
 }
 
-def get_candles(exchange, pair, numcandles, timeframe):
+# Kept for backward compatibility
+timeframe_to_seconds = TIMEFRAME_TO_GRANULARITY
+
+
+# ── Public Exchange API ────────────────────────────────────────────────────────
+
+def get_candles(
+    pair: str,
+    numcandles: int,
+    timeframe: str,
+    exchange: str = "coinbase",
+) -> Optional[list]:
     """
-    Fetches historical OHLCV candles for a specific trading pair and timeframe from Coinbase.
+    Fetch historical OHLCV candles from the Coinbase Exchange API.
 
     Args:
-        exchange (str): The name of the exchange (not actively used in this function, for extensibility).
-        pair (str): The trading pair in the format "BASE-QUOTE" (e.g., "BTC-USD").
-        numcandles (int): The number of candles to retrieve.
-        timeframe (str): The timeframe for the candles (e.g., '1h', '1d').
+        pair:       Trading pair, e.g. "BTC-USD" or "BTC_USD".
+        numcandles: Maximum number of candles to return (most-recent first).
+        timeframe:  One of '1m','5m','15m','1h','6h','1d','1w'.
+        exchange:   Ignored; retained for API compatibility.
 
     Returns:
-        list: A list of OHLCV candles or None if an error occurs.
+        List of candle arrays [timestamp, low, high, open, close, volume],
+        or None on any error.
     """
-    product_id = pair.replace("_", "-")  # Convert pair format, e.g., BTC_USD to BTC-USD
-    granularity = timeframe_to_seconds.get(timeframe)  # Convert timeframe to seconds
+    product_id  = pair.replace("_", "-")
+    granularity = TIMEFRAME_TO_GRANULARITY.get(timeframe)
 
     if granularity is None:
-        print(f"Error: Granularity for timeframe '{timeframe}' is not defined.")
+        print(f"Error: unknown timeframe '{timeframe}'. Valid options: {list(TIMEFRAME_TO_GRANULARITY)}")
         return None
 
-    url = f"https://api.exchange.coinbase.com/products/{product_id}/candles"
-    params = {
-        'granularity': granularity
-    }
+    url    = f"{EXCHANGE_BASE_URL}/products/{product_id}/candles"
+    params = {"granularity": granularity}
 
     try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()  # Raise an error for HTTP codes 4xx/5xx
-
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
         candles = response.json()
-        # Return only the last `numcandles` if available
         return candles[:numcandles] if len(candles) > numcandles else candles
 
-    except requests.exceptions.HTTPError as http_err:
-        print(f"HTTP error occurred: {http_err} - {response.text}")
-    except requests.exceptions.RequestException as req_err:
-        print(f"Request error occurred: {req_err}")
-    except ValueError as parse_err:
-        print(f"Error parsing JSON: {parse_err}")
-    except Exception as e:
-        print(f"Unexpected error fetching candles: {e}")
+    except requests.exceptions.HTTPError as err:
+        print(f"HTTP error: {err} – {response.text}")
+    except requests.exceptions.RequestException as err:
+        print(f"Request error: {err}")
+    except (ValueError, KeyError) as err:
+        print(f"Parse error: {err}")
+    except Exception as err:
+        print(f"Unexpected error fetching candles: {err}")
+
     return None
 
-def get_candles_with_retry(pair, numcandles, timeframe, exchange, retries=3, delay=1):
-    """
-    Attempts to fetch candle data with a retry mechanism for handling transient errors.
 
-    Args:
-        pair (str): The trading pair in the format "BASE-QUOTE".
-        numcandles (int): The number of candles to retrieve.
-        timeframe (str): The timeframe for the candles.
-        exchange (str): The name of the exchange (not actively used in this function, for extensibility).
-        retries (int): Number of retry attempts.
-        delay (int): Delay (in seconds) between retries.
-
-    Returns:
-        list: A list of OHLCV candles or None if all attempts fail.
+def get_candles_with_retry(
+    pair: str,
+    numcandles: int,
+    timeframe: str,
+    exchange: str = "coinbase",
+    retries: int = 3,
+    delay: float = 1.0,
+) -> Optional[list]:
     """
-    attempt = 0
-    while attempt < retries:
+    Retry wrapper around get_candles.
+    Stops immediately on rate-limit / IP-ban errors.
+    """
+    for attempt in range(retries):
         try:
-            candles = get_candles(exchange, pair, numcandles, timeframe)
+            candles = get_candles(pair, numcandles, timeframe, exchange)
             if candles is not None:
                 return candles
-        except Exception as e:
-            error_message = str(e).lower()
-            print(f"Error fetching candles: {e}")
-            # Check if the error message indicates an IP ban
-            if "ban" in error_message or "403" in error_message or "rate limit" in error_message:
-                print("It looks like your IP might be banned or rate-limited.")
-                break  # Exit the loop if the IP is banned
-        attempt += 1
-        print(f"Retrying... ({attempt}/{retries})")
-        time.sleep(delay)
+        except Exception as err:
+            msg = str(err).lower()
+            print(f"Error fetching candles (attempt {attempt + 1}/{retries}): {err}")
+            if any(k in msg for k in ("ban", "403", "rate limit")):
+                print("Rate-limited or IP-banned – stopping retries.")
+                return None
+
+        if attempt < retries - 1:
+            print(f"Retrying in {delay}s… ({attempt + 1}/{retries})")
+            time.sleep(delay)
+
     return None
 
-def main():
+
+# ── Authenticated Advanced Trade API ──────────────────────────────────────────
+
+class CoinbaseAdvancedClient:
     """
-    Main function to fetch candle data for multiple trading pairs and timeframes.
+    Client for the Coinbase Advanced Trade REST API.
+
+    Authentication uses HMAC-SHA256 signed headers (legacy API keys from
+    coinbase.com/settings/api). CDP (cloud.coinbase.com) keys use JWT —
+    see Coinbase docs for that variant.
+
+    Usage:
+        client = CoinbaseAdvancedClient()        # reads env vars
+        client = CoinbaseAdvancedClient(api_key="...", api_secret="...")
     """
-    # List of trading pairs and their corresponding timeframes
-    pairs = ['BTC-USD', 'ETH-USD', 'POL-USD', 'ARB-USD', 'VELO-USD', 'AERO-USD', 'LINK-USD', 'SOL-USD']
-    timeframes = ['1h'] * len(pairs)  # All pairs use the 1-hour timeframe
-    exchange = 'coinbase'
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        api_secret: Optional[str] = None,
+    ) -> None:
+        self.api_key    = api_key    or os.environ.get("COINBASE_API_KEY",    "")
+        self.api_secret = api_secret or os.environ.get("COINBASE_API_SECRET", "")
+        self.base_url   = ADVANCED_TRADE_BASE_URL
+
+    # ── Request helpers ────────────────────────────────────────────────────────
+
+    def _headers(self, method: str, path: str, body: str = "") -> dict:
+        """Build CB-ACCESS-* HMAC-SHA256 authentication headers."""
+        timestamp = str(int(time.time()))
+        message   = f"{timestamp}{method.upper()}{path}{body}"
+        signature = hmac.new(
+            self.api_secret.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return {
+            "CB-ACCESS-KEY":       self.api_key,
+            "CB-ACCESS-SIGN":      signature,
+            "CB-ACCESS-TIMESTAMP": timestamp,
+            "Content-Type":        "application/json",
+        }
+
+    def _get(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
+        url     = f"{self.base_url}{path}"
+        headers = self._headers("GET", path)
+        try:
+            resp = requests.get(url, headers=headers, params=params, timeout=10)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.exceptions.HTTPError as err:
+            print(f"HTTP error {resp.status_code}: {err}")
+        except requests.exceptions.RequestException as err:
+            print(f"Request error: {err}")
+        except (ValueError, KeyError) as err:
+            print(f"Parse error: {err}")
+        return None
+
+    # ── Market data (public, but included here for convenience) ───────────────
+
+    def get_product_candles(
+        self,
+        product_id: str,
+        start: int,
+        end: int,
+        granularity: str = "ONE_HOUR",
+    ) -> Optional[list]:
+        """
+        Fetch candles from the Advanced Trade API.
+
+        Args:
+            product_id:  e.g. "BTC-USD"
+            start:       Unix timestamp (seconds) – range start.
+            end:         Unix timestamp (seconds) – range end.
+            granularity: ONE_MINUTE | FIVE_MINUTE | FIFTEEN_MINUTE |
+                         THIRTY_MINUTE | ONE_HOUR | TWO_HOUR | SIX_HOUR | ONE_DAY
+        """
+        path   = f"/api/v3/brokerage/products/{product_id}/candles"
+        params = {"start": start, "end": end, "granularity": granularity}
+        data   = self._get(path, params)
+        if data and "candles" in data:
+            return data["candles"]
+        return None
+
+    # ── Authenticated endpoints ────────────────────────────────────────────────
+
+    def list_accounts(self) -> Optional[list]:
+        """Return all portfolios / accounts for the authenticated user."""
+        data = self._get("/api/v3/brokerage/accounts")
+        if data and "accounts" in data:
+            return data["accounts"]
+        return None
+
+    def get_best_bid_ask(self, product_ids: list) -> Optional[dict]:
+        """Return the best bid/ask for the given product IDs."""
+        params = {"product_ids": ",".join(product_ids)}
+        return self._get("/api/v3/brokerage/best_bid_ask", params)
+
+
+# ── CLI entry point ────────────────────────────────────────────────────────────
+
+def main() -> None:
+    pairs      = ["BTC-USD", "ETH-USD", "POL-USD", "ARB-USD", "VELO-USD",
+                  "AERO-USD", "LINK-USD", "SOL-USD"]
+    timeframe  = "1h"
     numcandles = 300
 
-    for pair, timeframe in zip(pairs, timeframes):
-        # Fetch candles with retry mechanism
-        candles = get_candles_with_retry(pair=pair, numcandles=numcandles, timeframe=timeframe, exchange=exchange)
-
-        # TODO: Process candles with your model here
+    for pair in pairs:
+        candles = get_candles_with_retry(pair, numcandles, timeframe)
         if candles:
             print(f"Fetched {len(candles)} candles for {pair}.")
+        time.sleep(0.5)
 
-        time.sleep(0.5)  # Wait 0.5 seconds between requests to avoid rate limits
 
 if __name__ == "__main__":
     main()

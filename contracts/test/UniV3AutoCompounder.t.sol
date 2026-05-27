@@ -738,4 +738,108 @@ contract UniV3AutoCompounderTest is Test {
 
         assertGt(amountOut, 0, "Should receive USDC when slippageBps=0");
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  setDao
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_SetDao_UpdatesDao() public {
+        address newDao = address(0x1111);
+        vm.prank(DAO);
+        vault.setDao(newDao);
+        assertEq(vault.dao(), newDao);
+    }
+
+    function test_SetDao_OnlyOwner() public {
+        vm.prank(USER);
+        vm.expectRevert("Not owner");
+        vault.setDao(address(0x1111));
+    }
+
+    function test_SetDao_ZeroAddress_Reverts() public {
+        vm.prank(DAO);
+        vm.expectRevert("Zero DAO address");
+        vault.setDao(address(0));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  setPool
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_SetPool_UpdatesPoolAndFee() public {
+        address newPool = address(0x2222);
+        uint24  newFee  = 3000;
+
+        vm.prank(DAO);
+        vault.setPool(newPool, newFee);
+
+        assertEq(vault.pool(),    newPool);
+        assertEq(vault.poolFee(), newFee);
+    }
+
+    function test_SetPool_OnlyOwner() public {
+        vm.prank(USER);
+        vm.expectRevert("Not owner");
+        vault.setPool(address(0x2222), 3000);
+    }
+
+    function test_SetPool_ZeroAddress_Reverts() public {
+        vm.prank(DAO);
+        vm.expectRevert("Zero pool address");
+        vault.setPool(address(0), 3000);
+    }
+
+    function test_SetPool_InvalidFeeTier_Reverts() public {
+        vm.prank(DAO);
+        vm.expectRevert("Invalid fee tier");
+        vault.setPool(address(0x2222), 9999);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  rescueTokens
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_RescueTokens() public {
+        uint256 amount = 1 ether;
+        deal(WETH, address(vault), amount);
+
+        uint256 ownerBalBefore = IERC20(WETH).balanceOf(DAO);
+
+        vm.prank(DAO);
+        vault.rescueTokens(WETH, amount);
+
+        assertEq(IERC20(WETH).balanceOf(DAO)           - ownerBalBefore, amount, "Owner should receive rescued tokens");
+        assertEq(IERC20(WETH).balanceOf(address(vault)),               0, "Vault balance should be zero after rescue");
+    }
+
+    function test_RescueTokens_OnlyOwner() public {
+        deal(WETH, address(vault), 1 ether);
+        vm.prank(USER);
+        vm.expectRevert("Not owner");
+        vault.rescueTokens(WETH, 1 ether);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  onERC721Received – position already set
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_OnERC721Received_RejectsWhenPositionAlreadySet() public {
+        _deposit(1 ether, 3_000e6);
+        assertGt(vault.tokenId(), 0, "tokenId must be set before this test");
+
+        vm.prank(POSITION_MANAGER);
+        vm.expectRevert("Position already set");
+        vault.onERC721Received(address(0), address(0), 999, "");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  totalLiquidity / pendingFees before any deposit
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_TotalLiquidity_ZeroWithNoPosition() public {
+        assertEq(vault.totalLiquidity(), 0, "totalLiquidity should be 0 with no position");
+        (uint128 f0, uint128 f1) = vault.pendingFees();
+        assertEq(f0, 0);
+        assertEq(f1, 0);
+    }
 }
