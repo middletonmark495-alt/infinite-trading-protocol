@@ -11,6 +11,7 @@ Run it. Do what you gotta do.
 
 import os
 import sys
+import requests
 from typing import Optional
 
 # ── load .env ─────────────────────────────────────────────────────────────────
@@ -24,9 +25,10 @@ if os.path.exists(_env_path):
                 os.environ.setdefault(_k.strip(), _v.strip())
 
 sys.path.insert(0, os.path.dirname(__file__))
-from coinbase import CoinbaseAdvancedClient  # noqa: E402
+from coinbase import CoinbaseAdvancedClient, EXCHANGE_BASE_URL  # noqa: E402
 
 _client = CoinbaseAdvancedClient()
+_has_keys = bool(os.environ.get("COINBASE_API_KEY"))
 
 
 # ── formatting ────────────────────────────────────────────────────────────────
@@ -42,6 +44,9 @@ def _pct(v) -> str:
 # ── commands ──────────────────────────────────────────────────────────────────
 
 def cmd_balance(_args):
+    if not _has_keys:
+        print("No API keys found. Add COINBASE_API_KEY and COINBASE_API_SECRET to .env")
+        return
     accounts = _client.list_accounts()
     if not accounts:
         print("No accounts (check API keys in .env).")
@@ -63,26 +68,49 @@ def cmd_balance(_args):
     print()
 
 
+def _public_ticker(pair: str) -> Optional[dict]:
+    try:
+        r = requests.get(f"{EXCHANGE_BASE_URL}/products/{pair}/ticker", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def _public_stats(pair: str) -> Optional[dict]:
+    try:
+        r = requests.get(f"{EXCHANGE_BASE_URL}/products/{pair}/stats", timeout=10)
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
 def cmd_price(args):
     if not args:
         print("Usage: price <PAIR>  e.g.  price BTC-USD")
         return
-    pair    = args[0].upper()
-    product = _client.get_product(pair)
-    if not product:
+    pair   = args[0].upper()
+    ticker = _public_ticker(pair)
+    stats  = _public_stats(pair)
+    if not ticker:
         print(f"Product not found: {pair}")
         return
-    p    = product.get("price")
-    ch   = product.get("price_percentage_change_24h")
-    vol  = product.get("volume_24h")
-    high = product.get("price_24h_high") or product.get("high_52_week")
-    low  = product.get("price_24h_low")  or product.get("low_52_week")
+
+    price  = ticker.get("price")
+    vol    = ticker.get("volume")
+    high   = stats.get("high") if stats else None
+    low    = stats.get("low")  if stats else None
+    open_  = stats.get("open") if stats else None
 
     print(f"\n{pair}")
-    if p:    print(f"  Price  : {_usd(p)}")
-    if ch:   print(f"  24h    : {_pct(ch)}")
-    if high: print(f"  High   : {_usd(high)}")
-    if low:  print(f"  Low    : {_usd(low)}")
+    if price: print(f"  Price  : {_usd(price)}")
+    if open_ and price:
+        try:
+            ch = (float(price) - float(open_)) / float(open_) * 100
+            print(f"  24h    : {_pct(ch)}")
+        except (ValueError, ZeroDivisionError):
+            pass
+    if high:  print(f"  High   : {_usd(high)}")
+    if low:   print(f"  Low    : {_usd(low)}")
     if vol:
         try:
             print(f"  Volume : {float(vol):,.2f}")
