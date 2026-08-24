@@ -3,6 +3,12 @@ __pycache__/
 *.py[cod]
 *.pyo
 .pytest_cache/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+coverage/
+htmlcov/
 
 # Foundry
 contracts/out/
@@ -12,5 +18,20 @@ contracts/broadcast/
 # Node
 node_modules/
 
-# Environment
+# Environment / secrets
 .env
+.env.*
+!.env.example
+secrets/
+credentials/
+keys/
+
+# Runtime data
+*.log
+*.sqlite
+*.db
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
